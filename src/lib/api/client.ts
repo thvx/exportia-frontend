@@ -2,7 +2,9 @@ import { toast } from 'sonner';
 import { tokenManager } from '../auth/tokenManager';
 import type { ApiErrorResponse } from '../../types/api';
 
-const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string) ?? '/api';
+const DEFAULT_API_BASE_URL = 'https://exportia-backend-production.up.railway.app/api';
+
+const BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? DEFAULT_API_BASE_URL;
 const TIMEOUT = Number(import.meta.env.VITE_API_TIMEOUT ?? 30000);
 const LOGGING = import.meta.env.VITE_ENABLE_LOGGING === 'true';
 
