@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { Tooltip, ResponsiveContainer, Treemap } from "recharts";
 import {
   Check,
   DollarSign,
@@ -20,11 +21,13 @@ import { toast } from "sonner";
 import { ProfileSetupDialog } from "../components/ProfileSetupDialog";
 import { useAuth } from "../lib/auth/AuthContext";
 import { useProductPotentialMarkets, useUnitExportPrice } from "../lib/api/hooks/useMarkets";
+import { useExportOpportunities } from "../lib/api/hooks/useComtrade";
 import { countryFlag, formatUsd } from "../lib/utils";
 import { productsApi } from "../lib/api/productsApi";
 import type { ClassifyStatusResponse } from "../lib/api/productsApi";
 import { alertsApi, type WtoMember } from "../lib/api/alertsApi";
 import { authApi } from "../lib/api/authApi";
+import type { ExportOpportunity } from "../lib/api/comtradeApi";
 
 export const Route = createFileRoute("/productos")({
   component: ProductosPage,
@@ -45,6 +48,8 @@ const trendIcon = {
   declining: <TrendingDown size={14} className="text-signal-red" />,
 };
 const trendLabel = { rising: "Subiendo", stable: "Estable", declining: "Bajando" } as const;
+const MARKET_TREE_COLORS = ["#312e81", "#3730a3", "#4338ca", "#4f46e5", "#6366f1", "#818cf8", "#a5b4fc", "#c7d2fe"];
+const COMTRADE_YEAR = new Date().getFullYear() - 2;
 
 // ── Classify panel ──────────────────────────────────────────────────────────
 
@@ -107,6 +112,135 @@ function renderMarkdown(text: string): React.ReactNode {
         );
       })}
     </>
+  );
+}
+
+interface MarketTileProps {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  name?: string;
+  share?: number;
+  rank?: number;
+}
+
+function MarketTreemapTile({
+  x = 0,
+  y = 0,
+  width = 0,
+  height = 0,
+  name = "",
+  share = 0,
+  rank = 0,
+}: MarketTileProps) {
+  if (width < 4 || height < 4) return null;
+  const fill = MARKET_TREE_COLORS[Math.min(rank, MARKET_TREE_COLORS.length - 1)] ?? MARKET_TREE_COLORS[0];
+  const isLight = rank >= MARKET_TREE_COLORS.length - 3;
+  const textColor = isLight ? "#1e1b4b" : "#fff";
+  const maxChars = Math.max(3, Math.floor(width / 7));
+  const label = name.length > maxChars ? `${name.slice(0, maxChars - 1)}...` : name;
+
+  return (
+    <g>
+      <rect x={x + 1} y={y + 1} width={Math.max(0, width - 2)} height={Math.max(0, height - 2)} fill={fill} rx={3} />
+      {width > 44 && height > 22 && (
+        <text x={x + 6} y={y + 16} fill={textColor} fontSize={11} fontWeight={700} style={{ pointerEvents: "none" }}>
+          {label}
+        </text>
+      )}
+      {width > 44 && height > 34 && (
+        <text x={x + 6} y={y + 29} fill={textColor} fontSize={10} opacity={0.82} style={{ pointerEvents: "none" }}>
+          {share}%
+        </text>
+      )}
+    </g>
+  );
+}
+
+function MarketTreemapTooltip({ active, payload }: {
+  active?: boolean;
+  payload?: Array<{ payload?: { name: string; size: number; share: number } }>;
+}) {
+  if (!active || !payload?.length) return null;
+  const data = payload[0]?.payload;
+  if (!data) return null;
+
+  return (
+    <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-md">
+      <p className="font-bold text-card-foreground">{countryFlag(data.name)} {data.name}</p>
+      <p className="text-muted-foreground">
+        Importa: <span className="font-semibold text-primary">{formatUsd(data.size)}</span>
+      </p>
+      <p className="text-muted-foreground">
+        Cuota global: <span className="font-semibold">{data.share}%</span>
+      </p>
+    </div>
+  );
+}
+
+function MarketIntelligenceChart({
+  opportunities,
+  isLoading,
+  hsCode,
+}: {
+  opportunities: ExportOpportunity[];
+  isLoading: boolean;
+  hsCode?: string;
+}) {
+  const chartData = opportunities.map((market, index) => ({
+    name: market.country,
+    size: market.import_value,
+    share: market.share,
+    rank: index,
+  }));
+
+  return (
+    <div className="content-card mx-4">
+      <div className="mb-3 flex items-center gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+          <Globe size={18} />
+        </div>
+        <div>
+          <p className="text-sm font-bold uppercase text-card-foreground">¿Dónde lo puedo vender? — Inteligencia de mercados</p>
+          <p className="text-xs text-muted-foreground">Mapa de participación por país importador</p>
+        </div>
+      </div>
+
+      {isLoading && <p className="py-2 text-xs text-muted-foreground">Consultando UN Comtrade...</p>}
+
+      {!isLoading && chartData.length === 0 && (
+        <p className="py-2 text-xs text-muted-foreground">Sin datos de inteligencia de mercados disponibles.</p>
+      )}
+
+      {!isLoading && chartData.length > 0 && (
+        <>
+          <ResponsiveContainer width="100%" height={260}>
+            <Treemap
+              data={chartData}
+              dataKey="size"
+              stroke="transparent"
+              isAnimationActive={false}
+              content={<MarketTreemapTile />}
+            >
+              <Tooltip content={<MarketTreemapTooltip />} />
+            </Treemap>
+          </ResponsiveContainer>
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+            {chartData.slice(0, 5).map((market, index) => (
+              <span key={market.name} className="flex items-center gap-1 text-[0.65rem] text-muted-foreground">
+                <span className="inline-block h-2 w-2 rounded-sm" style={{ background: MARKET_TREE_COLORS[index] }} />
+                {countryFlag(market.name)} {market.name} · {market.share}%
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+
+      <p className="mt-3 text-[0.6rem] text-muted-foreground">
+        Fuente: UN Comtrade · {COMTRADE_YEAR}{hsCode ? ` · HS ${hsCode}` : ""}
+      </p>
+    </div>
   );
 }
 
@@ -778,9 +912,15 @@ function ProductosPage() {
   const productParam = selectedProduct ? selectedProduct.hs_code.replace(/\D/g, "").slice(0, 4) : undefined;
 
   const potentialMarketsQuery = useProductPotentialMarkets(productParam, 8);
+  const opportunitiesQuery = useExportOpportunities(
+    selectedProduct?.hs_code.replace(/\D/g, ""),
+    15
+  );
 
   const markets     = potentialMarketsQuery.data?.data ?? [];
+  const opportunities = opportunitiesQuery.data?.data ?? [];
   const dataLoading = potentialMarketsQuery.isLoading;
+  const opportunitiesLoading = opportunitiesQuery.isLoading;
 
   const isEditingCurrentProduct = selectedProduct && editingHsId === selectedProduct.id;
 
@@ -952,6 +1092,11 @@ function ProductosPage() {
               <div className="section-title mt-4">
                 3. ¿Dónde lo puedo vender? — Inteligencia de mercados
               </div>
+              <MarketIntelligenceChart
+                opportunities={opportunities}
+                isLoading={opportunitiesLoading}
+                hsCode={selectedProduct.hs_code.replace(/\D/g, "")}
+              />
               <div className="content-card mx-4">
                 <div className="mb-3 flex items-center gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-foreground">
