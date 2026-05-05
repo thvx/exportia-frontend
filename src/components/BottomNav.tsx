@@ -2,13 +2,13 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { Home, Globe, Bell, Package, MessageCircle, UserRound } from "lucide-react";
 
 const tabs = [
-  { to: "/", icon: Home, label: "Inicio" },
-  { to: "/productos", icon: Package, label: "Productos" },
-  { to: "/mercados", icon: Globe, label: "Mercados" },
-  { to: "/alertas", icon: Bell, label: "Alertas" },
-  { to: "/asistente", icon: MessageCircle, label: "Chat" },
-  { to: "/auth", icon: UserRound, label: "Cuenta" },
-] as const;
+  { to: "/", icon: Home, label: "Inicio", hidden: false },
+  { to: "/productos", icon: Package, label: "ClasifIA", hidden: false },
+  { to: "/mercados", icon: Globe, label: "Mercados", hidden: true },
+  { to: "/alertas", icon: Bell, label: "Alertas", hidden: false },
+  { to: "/asistente", icon: MessageCircle, label: "Chat", hidden: false },
+  { to: "/auth", icon: UserRound, label: "Cuenta", hidden: false },
+];
 
 export function BottomNav() {
   const location = useLocation();
@@ -16,7 +16,7 @@ export function BottomNav() {
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-nav-bg border-t border-border z-50 md:hidden">
       <div className="flex items-center justify-around py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))]">
-        {tabs.map(({ to, icon: Icon, label }) => {
+        {tabs.filter(t => !t.hidden).map(({ to, icon: Icon, label }) => {
           const active = location.pathname === to;
           return (
             <Link

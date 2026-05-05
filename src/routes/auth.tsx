@@ -108,6 +108,13 @@ function AuthRoute() {
               <p className="mt-5 max-w-lg text-base leading-7 text-white/72">
                 Tu cuenta mantiene perfil, productos, mercados, alertas y asistencia en una experiencia continua.
               </p>
+              <div className="mt-6 flex justify-start">
+                <img
+                  src="/exportia-mascot-DDULeobD.png"
+                  alt="Mascota ExportIA"
+                  className="w-44 h-auto object-contain opacity-90 drop-shadow-lg"
+                />
+              </div>
             </div>
           </div>
 

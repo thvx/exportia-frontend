@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Check, Loader2, PackagePlus, Search, X } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Loader2, PackagePlus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { alertsApi, type WtoMember } from "../lib/api/alertsApi";
 import { authApi } from "../lib/api/authApi";
@@ -17,6 +17,17 @@ interface ProfileSetupDialogProps {
 type ProductMatches = Record<string, QRProduct[]>;
 type SelectedProducts = Record<string, QRProduct>;
 
+interface ClassifyFields {
+  descripcion: string;
+  usos: string;
+  presentacion: string;
+  materiales: string;
+  origen: string;
+  estado_fisico: string;
+  grado_procesamiento: string;
+  informacion_adicional: string;
+}
+
 function splitTerms(value: string): string[] {
   return value
     .split(/[\n,;]+/)
@@ -27,7 +38,7 @@ function splitTerms(value: string): string[] {
 function normalize(value: string): string {
   return value
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .trim();
 }
@@ -52,6 +63,22 @@ function findCountry(term: string, members: WtoMember[]): WtoMember | null {
   );
 }
 
+const CLASSIFY_FIELDS: { key: keyof ClassifyFields; label: string; placeholder: string; required?: boolean }[] = [
+  { key: "descripcion",           label: "Descripción",          required: true, placeholder: "Ej: Aceite de oliva virgen extra obtenido por procesos mecánicos" },
+  { key: "usos",                  label: "Usos",                                 placeholder: "Ej: Consumo humano, uso culinario" },
+  { key: "presentacion",          label: "Presentación",                         placeholder: "Ej: Botella de vidrio de 750 ml" },
+  { key: "materiales",            label: "Materiales / Ingredientes",            placeholder: "Ej: 100% aceite de oliva, sin aditivos" },
+  { key: "origen",                label: "Origen",                               placeholder: "Ej: Perú" },
+  { key: "estado_fisico",         label: "Estado físico",                        placeholder: "Ej: Sólido, líquido, polvo" },
+  { key: "grado_procesamiento",   label: "Grado de procesamiento",               placeholder: "Ej: Producto procesado, semiprocesado" },
+  { key: "informacion_adicional", label: "Información adicional",                placeholder: "Ej: Certificación orgánica, acidez máxima 0.8%" },
+];
+
+const EMPTY_CLASSIFY: ClassifyFields = {
+  descripcion: "", usos: "", presentacion: "", materiales: "",
+  origen: "", estado_fisico: "", grado_procesamiento: "", informacion_adicional: "",
+};
+
 export function ProfileSetupDialog({
   open,
   onOpenChange,
@@ -65,6 +92,8 @@ export function ProfileSetupDialog({
   const [matches, setMatches] = useState<ProductMatches>({});
   const [selectedProducts, setSelectedProducts] = useState<SelectedProducts>({});
   const [selectedCountries, setSelectedCountries] = useState<WtoMember[]>([]);
+  const [classifyFields, setClassifyFields] = useState<ClassifyFields>(EMPTY_CLASSIFY);
+  const [classifyOpen, setClassifyOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [validatingCountries, setValidatingCountries] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -72,10 +101,10 @@ export function ProfileSetupDialog({
   const productTerms = useMemo(() => splitTerms(productInput), [productInput]);
   const countryTerms = useMemo(() => splitTerms(countryInput), [countryInput]);
   const canSave = Object.keys(selectedProducts).length > 0 && selectedCountries.length > 0;
+  const hasProductSelected = Object.keys(selectedProducts).length > 0;
 
   useEffect(() => {
     if (!open || members.length > 0) return;
-
     alertsApi
       .getQuotaMembers()
       .then((res) => setMembers(res.data))
@@ -89,7 +118,6 @@ export function ProfileSetupDialog({
       toast.error("Escribe al menos un producto.");
       return;
     }
-
     setSearching(true);
     try {
       const results = await Promise.all(
@@ -98,21 +126,19 @@ export function ProfileSetupDialog({
           return [term, res.data.filter(hasUsableHsCode).slice(0, 6)] as const;
         })
       );
-
       const nextMatches = Object.fromEntries(results);
       const autoSelected = Object.fromEntries(
         results
           .filter(([, items]) => items.length === 1)
           .map(([term, items]) => [term, items[0]])
       );
-
       setMatches(nextMatches);
       setSelectedProducts((current) => ({ ...current, ...autoSelected }));
-
       const withoutMatches = results.filter(([, items]) => items.length === 0).map(([term]) => term);
       if (withoutMatches.length > 0) {
         toast.warning(`Sin coincidencias para: ${withoutMatches.join(", ")}`);
       }
+      if (Object.keys(nextMatches).length > 0) setClassifyOpen(true);
     } finally {
       setSearching(false);
     }
@@ -123,16 +149,13 @@ export function ProfileSetupDialog({
       toast.error("Escribe al menos un país.");
       return;
     }
-
     setValidatingCountries(true);
     try {
       const resolved = countryTerms.map((term) => findCountry(term, members));
       const missing = countryTerms.filter((_, index) => !resolved[index]);
-
       if (missing.length > 0) {
         toast.error(`No encontré estos países en WTO: ${missing.join(", ")}`);
       }
-
       const unique = new Map<string, WtoMember>();
       resolved.forEach((country) => {
         if (country) unique.set(country.value, country);
@@ -143,15 +166,26 @@ export function ProfileSetupDialog({
     }
   }
 
+  function setClassifyField(key: keyof ClassifyFields) {
+    return (e: React.ChangeEvent<HTMLInputElement>) =>
+      setClassifyFields((prev) => ({ ...prev, [key]: e.target.value }));
+  }
+
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSave) {
       toast.error("Elige al menos un producto y un país validado.");
       return;
     }
-
     setSaving(true);
     try {
+      const nonEmptyFields = Object.fromEntries(
+        Object.entries(classifyFields).filter(([, v]) => v.trim() !== "")
+      ) as Record<string, string>;
+      const classificationData = Object.keys(nonEmptyFields).length > 0
+        ? { fields: nonEmptyFields, savedAt: new Date().toISOString() }
+        : undefined;
+
       await Promise.all(
         Object.entries(selectedProducts).map(([term, product]) =>
           productsApi.create({
@@ -159,6 +193,7 @@ export function ProfileSetupDialog({
             hs_code: product.code.replace(/\D/g, ""),
             category: "WTO",
             description: `Coincidencia seleccionada para "${term}"`,
+            classification_data: classificationData,
           })
         )
       );
@@ -181,6 +216,8 @@ export function ProfileSetupDialog({
       setSaving(false);
     }
   }
+
+  const inputClass = "mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground";
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-foreground/35 px-4 py-6">
@@ -209,6 +246,7 @@ export function ProfileSetupDialog({
         </div>
 
         <form onSubmit={saveProfile} className="space-y-5 px-5 py-5">
+          {/* ── Step 1: Product search ── */}
           <section>
             <label className="text-sm font-bold text-card-foreground">Productos a exportar</label>
             <textarea
@@ -229,6 +267,7 @@ export function ProfileSetupDialog({
             </button>
           </section>
 
+          {/* ── Step 2: Select HS match ── */}
           {Object.keys(matches).length > 0 && (
             <section className="space-y-3">
               <p className="text-sm font-bold text-card-foreground">Elige la mejor coincidencia</p>
@@ -267,13 +306,51 @@ export function ProfileSetupDialog({
             </section>
           )}
 
+          {/* ── Step 3: Classification data ── */}
+          {hasProductSelected && (
+            <section className="rounded-lg border border-border bg-background">
+              <button
+                type="button"
+                onClick={() => setClassifyOpen((v) => !v)}
+                className="flex w-full items-center justify-between px-4 py-3 text-left"
+              >
+                <div>
+                  <p className="text-sm font-bold text-card-foreground">Datos para clasificación arancelaria</p>
+                  <p className="text-xs text-muted-foreground">Ayuda a la IA a confirmar la partida correcta. Recomendado.</p>
+                </div>
+                {classifyOpen ? <ChevronUp size={16} className="text-muted-foreground shrink-0" /> : <ChevronDown size={16} className="text-muted-foreground shrink-0" />}
+              </button>
+
+              {classifyOpen && (
+                <div className="border-t border-border px-4 pb-4 pt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {CLASSIFY_FIELDS.map(({ key, label, placeholder, required }) => (
+                    <div key={key}>
+                      <label className="block text-xs font-semibold text-muted-foreground">
+                        {label}{required && <span className="text-signal-red ml-0.5">*</span>}
+                      </label>
+                      <input
+                        type="text"
+                        value={classifyFields[key]}
+                        onChange={setClassifyField(key)}
+                        placeholder={placeholder}
+                        className={inputClass}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* ── Step 4: Destination countries ── */}
           <section>
             <label className="text-sm font-bold text-card-foreground">Países destino</label>
+            <p className="text-xs text-muted-foreground mt-0.5">Puedes ingresar uno o varios países separados por comas o saltos de línea.</p>
             <textarea
               value={countryInput}
               onChange={(event) => setCountryInput(event.target.value)}
               rows={2}
-              placeholder="Ej: Canadá, Estados Unidos, Chile"
+              placeholder="Ej: Canadá, Estados Unidos, Chile, Alemania"
               className="mt-2 w-full resize-none rounded-lg border border-input bg-background px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
             />
             <button
@@ -290,8 +367,16 @@ export function ProfileSetupDialog({
           {selectedCountries.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {selectedCountries.map((country) => (
-                <span key={country.value} className="rounded-full bg-secondary px-3 py-1 text-xs font-bold text-secondary-foreground">
+                <span key={country.value} className="flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1 text-xs font-bold text-secondary-foreground">
                   {country.text}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCountries((prev) => prev.filter((c) => c.value !== country.value))}
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label={`Quitar ${country.text}`}
+                  >
+                    <X size={11} />
+                  </button>
                 </span>
               ))}
             </div>

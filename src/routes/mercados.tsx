@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { ArrowRight, Globe, Zap, Package, BarChart2, Shield } from "lucide-react";
+import { ArrowRight, Globe, Loader2, Zap, Package, BarChart2, Shield } from "lucide-react";
 import {
   Treemap,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -8,17 +8,18 @@ import {
   ComposedChart, Bar, Line, CartesianGrid, XAxis, YAxis,
   Tooltip, ResponsiveContainer,
 } from "recharts";
+import { RamRequirementsModal } from "../components/RamRequirementsModal";
 import { useAuth } from "../lib/auth/AuthContext";
 import { useProductPotentialMarkets } from "../lib/api/hooks/useMarkets";
 import {
   useTopImporters,
   useTopImportedProducts,
-  useExportOpportunities,
 } from "../lib/api/hooks/useComtrade";
 import { useFacilityScores } from "../lib/wto/hooks";
+import { useRamRequirements } from "../lib/api/hooks/useRam";
 import { countryFlag, formatUsd } from "../lib/utils";
 import type { PotentialMarket } from "../types/markets";
-import type { TradePartner, TradeProduct, ExportOpportunity } from "../lib/api/comtradeApi";
+import type { TradePartner, TradeProduct } from "../lib/api/comtradeApi";
 
 export const Route = createFileRoute("/mercados")({
   component: MercadosPage,
@@ -62,42 +63,6 @@ const badgeCls: Record<Signal, string> = {
 // ══════════════════════════════════════════════════════════════════════════
 // Data-driven insight generators (pure functions, no AI)
 // ══════════════════════════════════════════════════════════════════════════
-
-function insightBloque1(
-  opps: ExportOpportunity[], total: number, cagr: number, hsLabel: string
-): string {
-  if (!opps.length || !total) return "";
-  const top  = opps[0];
-  const top3 = Math.round(opps.slice(0, 3).reduce((s, o) => s + o.share, 0));
-  const parts: string[] = [
-    `El mercado mundial de ${hsLabel} mueve ${formatUsd(total)} al año.`,
-    `${top.country} es el mayor comprador con el ${top.share}% de la demanda global.`,
-  ];
-  if (top3 >= 70) {
-    parts.push(
-      `El mercado está muy concentrado: solo 3 países acumulan el ${top3}% — ` +
-      `para entrar compites con proveedores consolidados. Apuntar a mercados medianos puede ser más accesible.`
-    );
-  } else if (top3 >= 50) {
-    parts.push(
-      `Los 3 principales importadores concentran el ${top3}%, dejando un ${100 - top3}% ` +
-      `distribuido entre ${opps.length - 3} mercados — hay múltiples puntos de entrada.`
-    );
-  } else {
-    parts.push(
-      `El mercado está repartido: los 3 mayores solo controlan el ${top3}%. ` +
-      `Buenas condiciones para que un nuevo exportador encuentre su nicho.`
-    );
-  }
-  if (cagr >= 3) {
-    parts.push(`Con CAGR de +${cagr}% la demanda está en expansión — buen momento para posicionarse.`);
-  } else if (cagr > 0) {
-    parts.push(`El crecimiento global es moderado (+${cagr}%). Prioriza mercados que crezcan por encima del promedio.`);
-  } else if (cagr < 0) {
-    parts.push(`La demanda global se contrae (${cagr}%). Enfoca el esfuerzo en los mercados que aún crecen.`);
-  }
-  return parts.join(" ");
-}
 
 function insightBloque2(
   radar: Array<{ dim: string; v: number }>,
@@ -255,57 +220,6 @@ function SectionHeader({ icon, title, sub }: {
   );
 }
 
-/** Banner shown at top of section 3 with product context and key stats. */
-function ProductContextBanner({
-  productName, hsLabel, total, cagr, top,
-}: {
-  productName: string; hsLabel: string; total: number; cagr: number;
-  top?: ExportOpportunity;
-}) {
-  return (
-    <div className="mx-4 mb-0 rounded-xl border border-primary/25 bg-gradient-to-br from-primary/8 to-transparent p-4">
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div>
-          <p className="text-[0.6rem] font-semibold text-primary uppercase tracking-widest mb-0.5">
-            Analizando producto
-          </p>
-          <p className="text-base font-bold text-card-foreground leading-tight">{productName}</p>
-          <p className="text-xs text-muted-foreground mt-0.5 font-mono">{hsLabel}</p>
-        </div>
-        {total > 0 && (
-          <div className="text-right shrink-0">
-            <p className="text-[0.6rem] text-muted-foreground">Mercado global</p>
-            <p className="text-lg font-bold text-primary">{formatUsd(total)}</p>
-            <p className="text-[0.6rem] text-muted-foreground">anuales</p>
-          </div>
-        )}
-      </div>
-      {(top || cagr !== 0) && (
-        <div className="flex flex-wrap gap-x-5 gap-y-1.5">
-          {top && (
-            <div>
-              <p className="text-[0.6rem] text-muted-foreground">Mayor importador</p>
-              <p className="text-xs font-semibold text-card-foreground">
-                {countryFlag(top.country)} {top.country} · {top.share}% global
-              </p>
-            </div>
-          )}
-          <div>
-            <p className="text-[0.6rem] text-muted-foreground">CAGR ponderado</p>
-            <p className={`text-xs font-semibold ${cagr >= 2 ? "text-signal-green" : cagr >= 0 ? "text-amber-500" : "text-signal-red"}`}>
-              {cagr > 0 ? "+" : ""}{cagr}% anual
-            </p>
-          </div>
-          <div>
-            <p className="text-[0.6rem] text-muted-foreground">Fuente</p>
-            <p className="text-xs font-semibold text-muted-foreground">UN Comtrade + WTO · {COMTRADE_YEAR}</p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Treemap tile ──────────────────────────────────────────────────────────
 interface TileProps {
   x?: number; y?: number; width?: number; height?: number;
@@ -332,18 +246,6 @@ function TreemapTile({ x=0, y=0, width=0, height=0, name="", share=0, rank=0, pa
 }
 
 // ── Tooltips ──────────────────────────────────────────────────────────────
-function MapTooltip({ active, payload }: any) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0]?.payload;
-  if (!d) return null;
-  return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-md">
-      <p className="font-bold">{countryFlag(d.name)} {d.name}</p>
-      <p className="text-muted-foreground">Importa: <span className="font-semibold text-primary">{formatUsd(d.size)}</span></p>
-      <p className="text-muted-foreground">Cuota global: <span className="font-semibold">{d.share}%</span></p>
-    </div>
-  );
-}
 function DonutTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
   const d = payload[0];
@@ -395,28 +297,17 @@ function MercadosPage() {
   // ── Queries ────────────────────────────────────────────────────────────
   const { data: marketsData,  isLoading: marketsLoading  } = useProductPotentialMarkets(hs4, 12);
   const { data: facilityData, isLoading: facilityLoading } = useFacilityScores();
-  const { data: oppsRes,      isLoading: oppsLoading     } = useExportOpportunities(rawHsCode, 15);
   const { data: importersRes, isLoading: importersLoading} = useTopImporters(destCode, rawHsCode, 7);
   const { data: productsRes,  isLoading: productsLoading } = useTopImportedProducts(destCode, 10);
+  const { data: ramRes,       isLoading: ramLoading       } = useRamRequirements(
+    selectedProduct ? rawHsCode : undefined,
+    selectedDest?.country_name
+  );
 
   const allMarkets:    PotentialMarket[]   = marketsData?.data   ?? [];
   const facilityScores                     = facilityData?.scores ?? [];
-  const opportunities: ExportOpportunity[] = oppsRes?.data        ?? [];
   const topImporters:  TradePartner[]      = importersRes?.data   ?? [];
   const topProducts:   TradeProduct[]      = productsRes?.data    ?? [];
-
-  // ── Derived values ─────────────────────────────────────────────────────
-  const totalMarket = opportunities.reduce((s, o) => s + o.import_value, 0);
-
-  const weightedCagr = useMemo(() => {
-    const total = allMarkets.reduce((s, m) => s + m.import_value, 0);
-    if (!total) return 0;
-    return Math.round(allMarkets.reduce((s, m) => s + m.cagr * (m.import_value / total), 0) * 10) / 10;
-  }, [allMarkets]);
-
-  const treemapData = opportunities.map((o, i) => ({
-    name: o.country, size: o.import_value, share: o.share, rank: i,
-  }));
 
   const radarData = useMemo(() => {
     if (!selectedDest) return [];
@@ -465,8 +356,6 @@ function MercadosPage() {
   const isDestLoading = importersLoading || productsLoading || facilityLoading || marketsLoading;
 
   // ── Pre-computed insight strings ──────────────────────────────────────
-  const insight1 = useMemo(() => insightBloque1(opportunities, totalMarket, weightedCagr, hsLabel),
-    [opportunities, totalMarket, weightedCagr, hsLabel]);
   const insight2 = useMemo(() => insightBloque2(radarData, selectedDest?.country_name ?? "", destWto),
     [radarData, selectedDest, destWto]);
   const insight3 = useMemo(() => insightBloque3(topImporters, selectedDest?.country_name ?? "", hsLabel),
@@ -505,79 +394,6 @@ function MercadosPage() {
             <Link to="/productos" className="font-semibold text-primary">Agregar →</Link>
           </p>
         )}
-      </div>
-
-      {/* ══ Section 3 header ══════════════════════════════════════════════ */}
-      <div className="section-title mt-2">3. ¿Dónde lo puedo vender? — Inteligencia de Mercados</div>
-
-      {/* Product context banner */}
-      {selectedProduct ? (
-        <ProductContextBanner
-          productName={selectedProduct.name}
-          hsLabel={hsLabel}
-          total={totalMarket}
-          cagr={weightedCagr}
-          top={opportunities[0]}
-        />
-      ) : (
-        <div className="mx-4 mb-0 rounded-xl border border-muted bg-muted/30 p-4">
-          <p className="text-xs text-muted-foreground">
-            Selecciona o agrega un producto para ver la inteligencia de mercados.{" "}
-            <Link to="/productos" className="font-semibold text-primary">Configurar →</Link>
-          </p>
-        </div>
-      )}
-
-      {/* ══ BLOQUE 1 — Panorama Global ═══════════════════════════════════ */}
-      <div className="content-card">
-        <SectionHeader
-          icon={<Globe size={14} />}
-          title="Panorama Global del Producto"
-          sub={hsLabel}
-        />
-
-        {/* Stat cards */}
-        {!oppsLoading && opportunities.length > 0 && (
-          <div className="grid grid-cols-3 gap-2 mb-4">
-            <div className="rounded-lg bg-muted p-2.5 text-center">
-              <p className="text-[0.65rem] text-muted-foreground mb-0.5">Mercado total</p>
-              <p className="text-sm font-bold text-card-foreground">{formatUsd(totalMarket)}</p>
-            </div>
-            <div className="rounded-lg bg-muted p-2.5 text-center">
-              <p className="text-[0.65rem] text-muted-foreground mb-0.5">CAGR ponderado</p>
-              <p className={`text-sm font-bold ${weightedCagr >= 0 ? "text-signal-green" : "text-signal-red"}`}>
-                {weightedCagr > 0 ? "+" : ""}{weightedCagr}%
-              </p>
-            </div>
-            <div className="rounded-lg bg-muted p-2.5 text-center">
-              <p className="text-[0.65rem] text-muted-foreground mb-0.5">Importadores</p>
-              <p className="text-sm font-bold text-card-foreground">{opportunities.length}</p>
-            </div>
-          </div>
-        )}
-
-        {oppsLoading ? <Skel h={260} /> : treemapData.length > 0 ? (
-          <>
-            <ResponsiveContainer width="100%" height={260}>
-              <Treemap data={treemapData} dataKey="size" stroke="transparent"
-                isAnimationActive={false} content={<TreemapTile palette={INDIGO} />}>
-                <Tooltip content={<MapTooltip />} />
-              </Treemap>
-            </ResponsiveContainer>
-            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-              {treemapData.slice(0, 5).map((d, i) => (
-                <span key={i} className="flex items-center gap-1 text-[0.65rem] text-muted-foreground">
-                  <span className="inline-block w-2 h-2 rounded-sm" style={{ background: INDIGO[i] }} />
-                  {countryFlag(d.name)} {d.name} · {d.share}%
-                </span>
-              ))}
-            </div>
-            <InsightBox text={insight1} />
-          </>
-        ) : (
-          <p className="text-xs text-muted-foreground">Sin datos disponibles.</p>
-        )}
-        <p className="text-[0.6rem] text-muted-foreground mt-3">Fuente: UN Comtrade · {COMTRADE_YEAR}</p>
       </div>
 
       {/* ══ BLOQUE 2 — Mis Mercados Objetivo ═════════════════════════════ */}
@@ -716,6 +532,37 @@ function MercadosPage() {
                 </div>
 
                 <InsightBox text={insight2} />
+
+                {/* ── Requisitos de Entrada al Mercado (RAM Promperú) ── */}
+                <div className="mt-4 rounded-lg border border-border bg-background p-4">
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div>
+                      <p className="text-xs font-semibold text-card-foreground">Requisitos de Entrada al Mercado</p>
+                      <p className="text-[0.65rem] text-muted-foreground mt-0.5">
+                        Normativas, certificaciones y documentos exigidos por {selectedDest.country_name} para importar este producto.
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-[0.6rem] font-bold text-primary">
+                      RAM Promperú
+                    </span>
+                  </div>
+                  {ramLoading ? (
+                    <div className="flex items-center gap-2 py-1">
+                      <Loader2 size={13} className="animate-spin text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground">Consultando RAM Promperú…</span>
+                    </div>
+                  ) : ramRes?.data?.hasData ? (
+                    <RamRequirementsModal
+                      data={ramRes.data}
+                      countryName={selectedDest.country_name}
+                      openKey={selectedIdx}
+                    />
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Sin datos de requisitos disponibles en RAM Promperú para este producto y país.
+                    </p>
+                  )}
+                </div>
               </>
             )}
           </>
